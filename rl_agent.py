@@ -2,7 +2,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import numpy
+import numpy as np
 
 from keras.models import Sequential
 from keras.layers import Dense, Activation, Flatten
@@ -19,6 +19,7 @@ from pysc2.env import sc2_env
 from absl import app
 
 import rl.core
+from gym import spaces
 
 _PLAYER_SELF = features.PlayerRelative.SELF
 _PLAYER_NEUTRAL = features.PlayerRelative.NEUTRAL  # beacon/minerals
@@ -26,14 +27,25 @@ _PLAYER_ENEMY = features.PlayerRelative.ENEMY
 
 
 class MoveToBeacon_KerasRL(base_agent.BaseAgent):
-    action_space = [actions.FUNCTIONS.Move_screen.id, actions.FUNCTIONS.select_army.id, actions.FUNCTIONS.no_op.id]
 
     def __init__(self):
         super().__init__()
-
+        self.cnt = 0
     def step(self, obs):
-        super().step(obs)
-        return actions.FUNCTIONS.no_op()
+        # super().step(obs)
+        if self.cnt == 0:
+            self.cnt += 1
+            return (5,5)
+        elif self.cnt == 1:
+            self.cnt+=1
+            return (5,50)
+        elif self.cnt == 2:
+            self.cnt+=1
+            return (50,50)
+        else:
+            self.cnt = 0
+            return (50,5)
+
 
 
 class PySC2ToKerasRL_env(rl.core.Env):
@@ -41,6 +53,13 @@ class PySC2ToKerasRL_env(rl.core.Env):
 
     def __init__(self, PySC2_env):
         self.env = PySC2_env
+
+        '''Move to Beacon'''
+        # define the action space and obs space based on the map, this is the move to beacon
+        self.action_space = spaces.Box(np.array([0, 0]), np.array([63, 63]))  # select x,y points to move the marine to
+        # our minimap, 64x64 grid, with values 0-4 for who the units in the space belong to
+        self.observation_space = spaces.Box(np.zeros(64 ** 2), np.array([4 for x in range(0, 64 ** 2)])) # flatten minimap
+
 
     def step(self, step_actions):
         """Run one timestep of the environment's dynamics.
@@ -54,11 +73,23 @@ class PySC2ToKerasRL_env(rl.core.Env):
             info (dict): Contains auxiliary diagnostic information (helpful for debugging, and sometimes learning).
         """
 
-        timesteps = getattr(self.env, "step")(step_actions)  # step env
-        obs = timesteps[0]  # retrieve updated obs
-        reward = obs.observation['score_cumulative'][0]  # get current score
-        done = obs.last()  # check if its the last step
-        info = None  # no debug stuff for now
+        # map x,y (0-63,0-63) coord to the move marine command
+
+        step_action = [actions.FUNCTIONS.Move_minimap("now", step_actions)]
+
+        try:
+            timesteps = getattr(self.env, "step")(step_action)  # step env
+        except:
+            timesteps = getattr(self.env, "step")([actions.FUNCTIONS.select_army('select')]) #select the marine
+
+        obs = timesteps[0].observation  # retrieve updated obs
+
+        obs = obs.feature_minimap.player_relative # a 0-63,0-63 array with 0-4 for each value
+        obs = obs.flatten() #map obs to a flattened space
+
+        reward = timesteps[0].reward  # get reward
+        done = timesteps[0].last()  # check if last step
+        info = None  # check if first step
 
         return obs, reward, done, info
 
@@ -68,8 +99,15 @@ class PySC2ToKerasRL_env(rl.core.Env):
         # Returns
             observation (object): The initial observation of the space. Initial reward is assumed to be 0.
         """
-        timesteps = getattr(self.env, "reset")()
-        obs = timesteps[0]  # retrieve initial obs
+        getattr(self.env, "reset")() #reset env using parent method
+
+        reset_action = [actions.FUNCTIONS.select_army('select')] #select marine
+        timesteps = getattr(self.env, "step")(reset_action) #select the marine
+
+        obs = timesteps[0].observation  # retrieve initial obs
+        # format obs
+        obs = obs.feature_minimap.player_relative  # a 0-63,0-63 array with 0-4 for each value
+        obs = obs.flatten()  # map obs to a flattened space
         return obs
 
     def render(self, mode='human', close=False):
@@ -92,18 +130,18 @@ def main(unused_argv):
                                 game_steps_per_episode=0,
                                 visualize=True) as env:
 
-
-
                 keras_env = PySC2ToKerasRL_env(env)
                 keras_agent = MoveToBeacon_KerasRL()
                 keras_agent.reset()
                 obs = keras_env.reset()
 
-                # insert keras-rl leaning loop here
+                # check if first action, if so we automatically select the marine
 
                 while True:
-                    step_actions = [keras_agent.step(obs)]
+
+                    step_actions = keras_agent.step(obs)
                     obs, reward, done, info = keras_env.step(step_actions)
+
 
     except KeyboardInterrupt:
         pass
