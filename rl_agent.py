@@ -3,10 +3,12 @@ from __future__ import division
 from __future__ import print_function
 
 import numpy as np
+import csv
 
 from keras.models import Sequential
 from keras.layers import Dense, Activation, Flatten
 from keras.optimizers import Adam
+from keras.callbacks import CSVLogger
 
 from rl.agents.dqn import DQNAgent
 from rl.policy import BoltzmannQPolicy
@@ -28,6 +30,8 @@ _PLAYER_ENEMY = features.PlayerRelative.ENEMY
 
 class MoveToBeacon_KerasRL(base_agent.BaseAgent):
 
+    # test agent
+    # -- broken now, as env action changed)
     def __init__(self):
         super().__init__()
         self.cnt = 0
@@ -49,19 +53,19 @@ class MoveToBeacon_KerasRL(base_agent.BaseAgent):
 
 
 class PySC2ToKerasRL_env(rl.core.Env):
-    # converts PySC2 env outputs to the inputs Keras-rl agents expect
+    # Converts PySC2 env outputs to the inputs Keras-rl agents expect
 
     def __init__(self, PySC2_env):
         self.env = PySC2_env
 
         '''Move to Beacon'''
         # define the action space and obs space based on the map, this is the move to beacon
-        self.action_space = spaces.Box(np.array(0), np.array(64**2))  #flatten action space
+        self.action_space = spaces.Box(np.array(0), np.array(64 ** 2))  # flatten action space
 
         self.observation_space = spaces.Box(np.zeros(64 ** 2),
                                             np.array([4 for x in range(0, 64 ** 2)]))  # flatten minimap
 
-        self.action_space.n = 64**2 # flatten the action space
+        self.action_space.n = 64 ** 2  # flatten the action space
 
     def step(self, step_actions):
         """Run one timestep of the environment's dynamics.
@@ -80,7 +84,7 @@ class PySC2ToKerasRL_env(rl.core.Env):
         x = step_actions % 64
         y = step_actions // 64
 
-        step_action = [actions.FUNCTIONS.Move_minimap("now", (x,y))]
+        step_action = [actions.FUNCTIONS.Move_minimap("now", (x, y))]
 
         try:
             timesteps = getattr(self.env, "step")(step_action)  # step env
@@ -94,7 +98,7 @@ class PySC2ToKerasRL_env(rl.core.Env):
 
         reward = timesteps[0].reward  # get reward
         done = timesteps[0].last()  # check if last step
-        info = {'items':1} # dummy dict entry to make keras rl happy
+        info = {'items': 1}  # dummy dict entry to make keras rl happy
 
         return obs, reward, done, info
 
@@ -131,7 +135,8 @@ def main(unused_argv):
                                     feature_dimensions=features.Dimensions(screen=84, minimap=64),
                                     # default size of feature screen and feature minimap
                                     use_feature_units=True),
-                                step_mul=16,  # this gives roughly 150 apm (8 would give 300 apm)
+                                step_mul=64,  # 16 gives roughly 150 apm (8 would give 300 apm)
+                                # larger num here makes it run faster
                                 game_steps_per_episode=0,
                                 visualize=True) as env:
                 # create a keras-rl env
@@ -153,26 +158,51 @@ def main(unused_argv):
                 nb_actions = keras_env.action_space.n
                 model = Sequential()
                 model.add(Flatten(input_shape=(1,) + keras_env.observation_space.shape))
-                model.add(Dense(16))
+                model.add(Dense(64))
                 model.add(Activation('relu'))
-                model.add(Dense(16))
+                model.add(Dense(64))
                 model.add(Activation('relu'))
-                model.add(Dense(16))
+                model.add(Dense(64))
+                model.add(Activation('relu'))
+                model.add(Dense(64))
                 model.add(Activation('relu'))
                 model.add(Dense(nb_actions))
                 model.add(Activation('linear'))
                 print(model.summary())
+                output_filename ="DQN_Rewards_3.csv"
+
+
+                #some other model
+                # model = Sequential()
+                # model.add(Flatten(input_shape=(1,) + keras_env.observation_space.shape))
+                # model.add(Dense(16))
+                # model.add(Activation('relu'))
+                # model.add(Dense(16))
+                # model.add(Activation('relu'))
+                # model.add(Dense(16))
+                # model.add(Activation('relu'))
+                # model.add(Dense(nb_actions))
+                # model.add(Activation('linear'))
+                # print(model.summary())
+                #output_filename = "DQN Rewards.csv"
+
 
                 # Finally, we configure and compile our agent. You can use every built-in Keras optimizer and
                 # even the metrics!
-                memory = SequentialMemory(limit=50000, window_length=1)
+                memory = SequentialMemory(limit=100000, window_length=1)
                 policy = BoltzmannQPolicy()
-                dqn = DQNAgent(model=model, nb_actions=nb_actions, memory=memory, nb_steps_warmup=10,
+                dqn = DQNAgent(model=model, nb_actions=nb_actions, memory=memory, nb_steps_warmup=20,
                                target_model_update=1e-2, policy=policy)
                 dqn.compile(Adam(lr=1e-3), metrics=['mae'])
 
-                # Okay, now it's time to learn something!
-                dqn.fit(keras_env, nb_steps=50000, visualize=False, verbose=2)
+                # Okay, now it's time to learn something! (hopefully)
+
+                hist = dqn.fit(keras_env, nb_steps=100000, visualize=False, verbose=2)
+
+                with open(output_filename, 'w+', newline='') as csvfile: #save the rewards over time
+                    writer = csv.writer(csvfile)
+                    writer.writerow(hist.history.get('episode_reward'))
+                break #kill the env
 
 
     except KeyboardInterrupt:
