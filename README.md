@@ -7,7 +7,7 @@ My ultimate goal would be to create an RL bot that can play Zerg (my favourite r
 ## Table of Contents
 
 - [A scripted Zerg bot](#a-scripted-zerg-bot) 
-- [Reinforcement Learning Implementation](reinforcement-learning-implementation)
+- [Reinforcement Learning Implementation](#reinforcement-learning-implementation)
   - [Attempt #1](#attempt-1)
     - [Model Parameters](#model-parameters)
     - [Results](#results)
