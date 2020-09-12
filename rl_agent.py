@@ -60,10 +60,11 @@ class PySC2ToKerasRL_env(rl.core.Env):
 
         '''Move to Beacon'''
         # define the action space and obs space based on the map, this is the move to beacon
-        self.action_space = spaces.Box(np.array(0), np.array(64 ** 2))  # flatten action space
+        self.action_space = spaces.Box(np.array(1024), np.array((64 ** 2)-1024))  # flatten action space
 
-        self.observation_space = spaces.Box(np.zeros(64 ** 2),
-                                            np.array([4 for x in range(0, 64 ** 2)]))  # flatten minimap
+        self.observation_space = spaces.Box(np.zeros(2),
+                                            np.array([63,63]))  # x,y of target
+
 
         self.action_space.n = 64 ** 2  # flatten the action space
 
@@ -94,7 +95,8 @@ class PySC2ToKerasRL_env(rl.core.Env):
         obs = timesteps[0].observation  # retrieve updated obs
 
         obs = obs.feature_minimap.player_relative  # a 0-63,0-63 array with 0-4 for each value
-        obs = obs.flatten()  # map obs to a flattened space
+        obs = np.where(obs == 3)
+        obs = np.array([np.mean(obs[0]),np.mean(obs[1])])
 
         reward = timesteps[0].reward  # get reward
         done = timesteps[0].last()  # check if last step
@@ -116,7 +118,9 @@ class PySC2ToKerasRL_env(rl.core.Env):
         obs = timesteps[0].observation  # retrieve initial obs
         # format obs
         obs = obs.feature_minimap.player_relative  # a 0-63,0-63 array with 0-4 for each value
-        obs = obs.flatten()  # map obs to a flattened space
+        obs = np.where(obs==3)
+        obs = np.array([np.mean(obs[0]), np.mean(obs[1])])
+
         return obs
 
     def render(self, mode='human', close=False):
@@ -158,18 +162,16 @@ def main(unused_argv):
                 nb_actions = keras_env.action_space.n
                 model = Sequential()
                 model.add(Flatten(input_shape=(1,) + keras_env.observation_space.shape))
-                model.add(Dense(64))
+                model.add(Dense(16))
                 model.add(Activation('relu'))
-                model.add(Dense(64))
+                model.add(Dense(16))
                 model.add(Activation('relu'))
-                model.add(Dense(64))
-                model.add(Activation('relu'))
-                model.add(Dense(64))
+                model.add(Dense(16))
                 model.add(Activation('relu'))
                 model.add(Dense(nb_actions))
                 model.add(Activation('linear'))
                 print(model.summary())
-                output_filename ="DQN_Rewards_3.csv"
+                output_filename ="DQN_Rewards_smallerObs_smallerActions.csv"
 
 
                 #some other model
@@ -189,15 +191,15 @@ def main(unused_argv):
 
                 # Finally, we configure and compile our agent. You can use every built-in Keras optimizer and
                 # even the metrics!
-                memory = SequentialMemory(limit=100000, window_length=1)
+                memory = SequentialMemory(limit=50000, window_length=1)
                 policy = BoltzmannQPolicy()
-                dqn = DQNAgent(model=model, nb_actions=nb_actions, memory=memory, nb_steps_warmup=20,
+                dqn = DQNAgent(model=model, nb_actions=nb_actions, memory=memory, nb_steps_warmup=15,
                                target_model_update=1e-2, policy=policy)
                 dqn.compile(Adam(lr=1e-3), metrics=['mae'])
 
                 # Okay, now it's time to learn something! (hopefully)
 
-                hist = dqn.fit(keras_env, nb_steps=100000, visualize=False, verbose=2)
+                hist = dqn.fit(keras_env, nb_steps=50000, visualize=False, verbose=2)
 
                 with open(output_filename, 'w+', newline='') as csvfile: #save the rewards over time
                     writer = csv.writer(csvfile)
